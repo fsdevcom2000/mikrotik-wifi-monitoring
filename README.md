@@ -1,15 +1,20 @@
 # WiFi Device Monitor for RouterOS
 
-Monitor Wi-Fi devices on MikroTik and receive Telegram notifications when devices connect or disconnect from Wi-Fi.
+Monitor Wi-Fi devices on MikroTik routers and receive Telegram notifications when devices connect or disconnect from Wi-Fi.
 
-Supports both **RouterOS WiFi (`/interface wifi`)** and **legacy Wireless (`/interface wireless`)** drivers.
+The script supports both RouterOS WiFi (`/interface wifi`) and legacy Wireless (`/interface wireless`) drivers.
 
+**Tested on RouterOS 7.18.2 (stable).**
+
+---
 
 # Монитор Wi-Fi-устройств для RouterOS
 
 Мониторинг Wi-Fi-устройств на MikroTik и получение уведомлений в Telegram при подключении или отключении устройств от Wi-Fi.
 
-Поддерживает как драйверы WiFi RouterOS (`/interface wifi`), так и устаревшие драйверы Wireless (`/interface wireless`).
+Скрипт поддерживает как RouterOS WiFi (`/interface wifi`), так и legacy Wireless (`/interface wireless`).
+
+**Протестировано на RouterOS 7.18.2 (stable).**
 
 ---
 
@@ -17,47 +22,63 @@ Supports both **RouterOS WiFi (`/interface wifi`)** and **legacy Wireless (`/int
 
 ## Features
 
-- Wi-Fi device monitoring by MAC address
-    
-- Telegram notifications for connect/disconnect events
-    
-- False positive protection (`FailThreshold`)
-    
-- Boot protection after router restart (`BootGracePeriod`)
-    
-- Supports RouterOS WiFi and legacy Wireless drivers
-    
-- Concurrent execution protection
-    
-- Automatic stale state cleanup
-    
+* Wi-Fi device monitoring by MAC address
+* Telegram notifications for connect/disconnect events
+* False positive protection using consecutive failure threshold
+* Boot protection after router restart
+* Automatic WiFi driver detection
+* Supports RouterOS WiFi and legacy Wireless drivers
+* Concurrent execution protection with fail-safe lock expiration
+* Persistent device state between scheduler runs
+* Automatic stale state cleanup
+* Global error handling with RouterOS `:onerror`
+* Telegram error isolation
+* Optimized online-device detection using an in-memory MAC cache
+* Safe first-run initialization without unnecessary notifications
 
 ---
 
 ## How it works
 
-The script checks devices from the **Access List** and verifies whether they exist in the **registration-table**.
+The script monitors devices configured in the **Access List** and checks whether their MAC addresses are present in the **registration-table**.
 
-If a device disappears for several checks in a row, a disconnect notification is sent.
+The registration table is first converted into an in-memory MAC cache. Each monitored device is then checked against this cache.
 
-When the device comes back online, a reconnect notification is sent.
+If a device is missing for several consecutive checks, it is considered offline and a disconnect notification is sent.
+
+When the device appears again, it is marked as online and a reconnect notification is sent.
+
+The device state and failure counter are stored globally between scheduler executions.
 
 ---
 
 ## Requirements
 
-### 1. RouterOS
+### RouterOS
 
-Supported:
+The final version has been tested on:
 
-- RouterOS 6 (`wireless`)
-    
-- RouterOS 7 (`wifi` package)
-    
+```text
+RouterOS 7.18.2 (stable)
+```
+
+The script automatically detects the available WiFi interface implementation:
+
+```text
+/interface wifi
+```
+
+or:
+
+```text
+/interface wireless
+```
+
+> Compatibility with other RouterOS versions may depend on the available scripting and WiFi interface features. RouterOS 7.18.2 is the currently tested version.
 
 ---
 
-### 2. Telegram script
+### Telegram script
 
 Before using this monitor, a script named:
 
@@ -83,7 +104,7 @@ $SendTelegramMessage strMessageText="Hello"
 
 ## Installation
 
-### 1. Create script
+### 1. Create the monitor script
 
 Go to:
 
@@ -91,13 +112,13 @@ Go to:
 System → Scripts
 ```
 
-Create a new script:
+Create a new script, for example:
 
 ```text
 monitor
 ```
 
-Paste the script code.
+Paste the WiFi Device Monitor script code.
 
 ---
 
@@ -105,21 +126,21 @@ Paste the script code.
 
 Go to:
 
-#### RouterOS 7 (wifi)
+#### RouterOS WiFi
 
 ```text
 WiFi → Access List
 ```
 
-#### RouterOS 6 / wireless
+#### Legacy Wireless
 
 ```text
 Wireless → Access List
 ```
 
-Add devices you want to monitor.
+Add the devices you want to monitor.
 
-Use the comment format:
+Use the following comment format:
 
 ```text
 MONITOR:Device Name
@@ -133,13 +154,15 @@ MONITOR:Office Laptop
 MONITOR:Front Door Camera
 ```
 
-Only entries with the prefix:
+Only Access List entries with the prefix:
 
 ```text
 MONITOR:
 ```
 
 will be monitored.
+
+If the device name is empty, its MAC address will be used as the device name.
 
 ---
 
@@ -171,11 +194,13 @@ monitor
 /system script run monitor
 ```
 
+The scheduler interval should match the `SchedulerInterval` value in the script.
+
 ---
 
 ## Configuration
 
-Available settings:
+The main configuration is located at the beginning of the script:
 
 ```routeros
 :local FailThreshold 4
@@ -185,7 +210,7 @@ Available settings:
 
 ### FailThreshold
 
-Number of failed checks before a device is considered offline.
+Number of consecutive failed checks before a device is considered offline.
 
 Example:
 
@@ -194,19 +219,23 @@ FailThreshold = 4
 Scheduler = 30 sec
 ```
 
-Device will be marked offline after about:
+The device will be considered offline after approximately:
 
 ```text
 2 minutes
 ```
 
+The exact time depends on when the device disappears relative to the scheduler cycle.
+
+This mechanism prevents temporary WiFi interruptions from generating false disconnect notifications.
+
 ---
 
 ### BootGracePeriod
 
-Delay after router reboot.
+Grace period after router startup.
 
-Prevents false offline alerts while Wi-Fi services are still starting.
+During this period the monitor does not process devices.
 
 Example:
 
@@ -216,13 +245,15 @@ Example:
 
 = 120 seconds.
 
+This prevents false offline notifications while the router and WiFi interfaces are still initializing.
+
 ---
 
 ### SchedulerInterval
 
 Scheduler interval in seconds.
 
-Must match your scheduler configuration.
+This value should match the actual RouterOS Scheduler interval.
 
 Example:
 
@@ -230,11 +261,76 @@ Example:
 30
 ```
 
-if the scheduler runs every 30 seconds.
+when the scheduler runs every 30 seconds.
+
+The value is also used by the execution lock to determine its fail-safe expiration period.
 
 ---
 
-## Example notifications
+## Execution Lock
+
+The monitor uses a global execution lock to prevent multiple instances from running simultaneously.
+
+The lock is based on:
+
+```text
+:timestamp
+:tonsec
+```
+
+rather than the current time of day.
+
+The lock automatically expires after two scheduler intervals.
+
+This provides a fail-safe mechanism in case a previous execution is interrupted unexpectedly.
+
+---
+
+## Error Handling
+
+The main monitoring process is protected by RouterOS `:onerror`.
+
+Unexpected errors are written to the RouterOS log.
+
+Telegram errors are handled separately so that a temporary Telegram failure does not terminate the monitoring process.
+
+---
+
+## State Management
+
+Each monitored device maintains:
+
+```text
+<MAC>-state
+<MAC>-fail
+```
+
+Example:
+
+```text
+AA-BB-CC-DD-EE-FF-state
+AA-BB-CC-DD-EE-FF-fail
+```
+
+The MAC address is converted into a safe storage key by replacing `:` with `-`.
+
+On the first run:
+
+* an online device is initialized as `online`;
+* an offline device is initialized as `offline`;
+* no Telegram notification is sent during initial state detection.
+
+---
+
+## Automatic Cleanup
+
+When a device is removed from the monitored Access List, its old state entries are automatically removed from the global storage.
+
+The script rebuilds the storage array using only active devices instead of modifying the array while iterating over it.
+
+---
+
+## Example Notifications
 
 Connected:
 
@@ -250,61 +346,104 @@ X - John Phone disconnected from Wi-Fi (MikroTik)
 
 ---
 
+## Compatibility Testing
+
+The script was tested on:
+
+```text
+RouterOS 7.18.2 (stable)
+```
+
+The compatibility tests covered:
+
+* dynamic array keys
+* array key removal
+* `foreach key,value`
+* `registration-table as-value`
+* `access-list as-value`
+* `:totime` uptime conversion
+* array rebuilding
+* global array replacement
+* `:timestamp`
+* `:tonsec`
+* timestamp arithmetic
+* `:onerror`
+
+The final production version does not use the RouterOS constructs that were confirmed to fail during testing on RouterOS 7.18.2.
+
+---
+
 # 🇷🇺 Русский
 
 ## Возможности
 
-- Мониторинг Wi-Fi устройств по MAC-адресу
-    
-- Уведомления в Telegram о подключении и отключении устройств
-    
-- Защита от ложных срабатываний (`FailThreshold`)
-    
-- Защита после перезагрузки роутера (`BootGracePeriod`)
-    
-- Поддержка RouterOS 6/7 (`wireless` и `wifi`)
-    
-- Защита от одновременного запуска
-    
-- Автоматическая очистка старых данных
-    
+* Мониторинг Wi-Fi-устройств по MAC-адресу
+* Уведомления в Telegram о подключении и отключении устройств
+* Защита от ложных срабатываний через последовательные неудачные проверки
+* Защита после перезагрузки роутера
+* Автоматическое определение используемого WiFi-драйвера
+* Поддержка RouterOS WiFi и legacy Wireless
+* Защита от одновременного запуска с fail-safe блокировкой
+* Сохранение состояния устройств между запусками scheduler
+* Автоматическая очистка устаревших данных
+* Глобальная обработка ошибок через RouterOS `:onerror`
+* Изоляция ошибок Telegram
+* Оптимизированное определение подключённых устройств через кэш MAC-адресов
+* Безопасная инициализация устройств при первом запуске без лишних уведомлений
 
 ---
 
 ## Как это работает
 
-Скрипт проверяет список устройств в **Access List** и отслеживает их наличие в **registration-table**.
+Скрипт отслеживает устройства, добавленные в **Access List**, и проверяет наличие их MAC-адресов в **registration-table**.
 
-Если устройство исчезает из сети несколько проверок подряд — отправляется уведомление об отключении.
+Сначала registration table преобразуется в кэш MAC-адресов. Затем каждое контролируемое устройство проверяется по этому кэшу.
 
-Если устройство появляется снова — отправляется уведомление о подключении.
+Если устройство отсутствует несколько последовательных проверок, оно считается отключённым и отправляется уведомление в Telegram.
+
+Когда устройство снова появляется в registration table, оно считается подключённым и отправляется уведомление о восстановлении соединения.
+
+Состояние устройства и счётчик ошибок сохраняются в глобальном хранилище между запусками scheduler.
 
 ---
 
 ## Требования
 
-### 1. RouterOS
+### RouterOS
 
-Поддерживаются:
+Финальная версия протестирована на:
 
-- RouterOS 6 (`wireless`)
-    
-- RouterOS 7 (`wifi` package)
-    
+```text
+RouterOS 7.18.2 (stable)
+```
+
+Скрипт автоматически определяет доступную реализацию WiFi:
+
+```text
+/interface wifi
+```
+
+или:
+
+```text
+/interface wireless
+```
+
+> Совместимость с другими версиями RouterOS может зависеть от доступных возможностей scripting и WiFi-интерфейсов. На данный момент протестированной версией является RouterOS 7.18.2.
 
 ---
 
-### 2. Telegram скрипт
+### Telegram скрипт
 
 Перед использованием должен существовать скрипт:
 
-```routeros
+```text
 send_to_telegram
 ```
 
-Скрипт должен принимать параметр:
+Он должен принимать параметр:
 
-```routeros
+```text
 strMessageText
 ```
 
@@ -318,7 +457,7 @@ $SendTelegramMessage strMessageText="Hello"
 
 ## Установка
 
-### 1. Создайте script
+### 1. Создайте monitor script
 
 Перейдите:
 
@@ -332,29 +471,27 @@ System → Scripts
 monitor
 ```
 
-Вставьте код скрипта.
+Вставьте код WiFi Device Monitor.
 
 ---
 
 ### 2. Добавьте устройства в Access List
 
-Перейдите:
-
-#### RouterOS 7 (wifi)
+#### RouterOS WiFi
 
 ```text
 WiFi → Access List
 ```
 
-#### RouterOS 6 / wireless
+#### Legacy Wireless
 
 ```text
 Wireless → Access List
 ```
 
-Добавьте устройство.
+Добавьте устройства, которые необходимо отслеживать.
 
-Обязательно используйте комментарий в формате:
+Используйте формат комментария:
 
 ```text
 MONITOR:Device Name
@@ -375,6 +512,8 @@ MONITOR:
 ```
 
 будут отслеживаться.
+
+Если имя устройства не указано, в качестве имени будет использоваться его MAC-адрес.
 
 ---
 
@@ -406,11 +545,13 @@ monitor
 /system script run monitor
 ```
 
+Интервал Scheduler должен соответствовать значению `SchedulerInterval` в скрипте.
+
 ---
 
 ## Настройка параметров
 
-В начале скрипта доступны настройки:
+В начале скрипта доступны основные параметры:
 
 ```routeros
 :local FailThreshold 4
@@ -420,7 +561,7 @@ monitor
 
 ### FailThreshold
 
-Количество неудачных проверок перед сообщением об отключении.
+Количество последовательных неудачных проверок перед тем, как устройство будет считаться отключённым.
 
 Пример:
 
@@ -429,19 +570,23 @@ FailThreshold = 4
 Scheduler = 30 sec
 ```
 
-Устройство будет считаться offline примерно через:
+Устройство будет считаться отключённым примерно через:
 
 ```text
 2 минуты
 ```
 
+Точное время зависит от момента исчезновения устройства относительно очередного запуска scheduler.
+
+Этот механизм предотвращает ложные уведомления при кратковременных проблемах с Wi-Fi.
+
 ---
 
 ### BootGracePeriod
 
-Время ожидания после перезагрузки роутера.
+Период ожидания после запуска роутера.
 
-Нужно, чтобы избежать ложных уведомлений во время запуска Wi-Fi.
+В течение этого времени монитор не выполняет обработку устройств.
 
 Пример:
 
@@ -451,13 +596,15 @@ Scheduler = 30 sec
 
 = 120 секунд.
 
+Это предотвращает ложные уведомления во время запуска роутера и WiFi-интерфейсов.
+
 ---
 
 ### SchedulerInterval
 
-Интервал запуска scheduler в секундах.
+Интервал запуска Scheduler в секундах.
 
-Должен совпадать с настройкой Scheduler.
+Значение должно соответствовать фактическому интервалу RouterOS Scheduler.
 
 Пример:
 
@@ -466,6 +613,71 @@ Scheduler = 30 sec
 ```
 
 если scheduler запускается каждые 30 секунд.
+
+Это значение также используется execution lock для расчёта периода его автоматического истечения.
+
+---
+
+## Execution Lock
+
+Монитор использует глобальную блокировку выполнения для предотвращения одновременного запуска нескольких экземпляров.
+
+Для lock используются:
+
+```text
+:timestamp
+:tonsec
+```
+
+вместо текущего времени суток.
+
+Lock автоматически истекает через два интервала Scheduler.
+
+Это обеспечивает fail-safe поведение, если предыдущий запуск был неожиданно прерван.
+
+---
+
+## Обработка ошибок
+
+Основной процесс мониторинга защищён через RouterOS `:onerror`.
+
+Непредвиденные ошибки записываются в системный лог RouterOS.
+
+Ошибки Telegram обрабатываются отдельно, поэтому временная проблема с Telegram не должна останавливать сам мониторинг.
+
+---
+
+## Управление состоянием
+
+Для каждого устройства сохраняются:
+
+```text
+<MAC>-state
+<MAC>-fail
+```
+
+Например:
+
+```text
+AA-BB-CC-DD-EE-FF-state
+AA-BB-CC-DD-EE-FF-fail
+```
+
+MAC-адрес преобразуется в безопасный ключ хранения: символы `:` заменяются на `-`.
+
+При первом запуске:
+
+* подключённое устройство получает состояние `online`;
+* отключённое устройство получает состояние `offline`;
+* Telegram-уведомление при первоначальном определении состояния не отправляется.
+
+---
+
+## Автоматическая очистка
+
+Если устройство удаляется из отслеживаемого Access List, его старые записи автоматически удаляются из глобального хранилища.
+
+Скрипт пересобирает массив хранилища только из актуальных устройств вместо изменения массива непосредственно во время его обхода.
 
 ---
 
@@ -483,3 +695,29 @@ O - John Phone connected to Wi-Fi (MikroTik)
 X - John Phone disconnected from Wi-Fi (MikroTik)
 ```
 
+---
+
+## Тестирование совместимости
+
+Скрипт протестирован на:
+
+```text
+RouterOS 7.18.2 (stable)
+```
+
+Тестами на совместимость были проверены:
+
+* dynamic array keys
+* удаление ключей массива
+* `foreach key,value`
+* `registration-table as-value`
+* `access-list as-value`
+* преобразование uptime через `:totime`
+* пересборка массивов
+* замена глобального массива
+* `:timestamp`
+* `:tonsec`
+* арифметика timestamp
+* `:onerror`
+
+Финальная production-версия не использует конструкции RouterOS, которые во время тестирования были подтверждены как неработающие на RouterOS 7.18.2.
