@@ -1,146 +1,297 @@
 # WiFi Device Monitor for RouterOS
 
-Monitor Wi-Fi devices on MikroTik routers and receive Telegram notifications when devices connect or disconnect from Wi-Fi.
+A simple WiFi device monitor for MikroTik RouterOS.
 
-The script supports both RouterOS WiFi (`/interface wifi`) and legacy Wireless (`/interface wireless`) drivers.
+The script watches selected WiFi devices by MAC address and sends Telegram notifications when they connect or disconnect.
 
-**Tested on RouterOS 7.18.2 (stable).**
+Supports both:
 
----
+- `/interface wifi`
+    
+- `/interface wireless`
+    
 
-# Монитор Wi-Fi-устройств для RouterOS
-
-Мониторинг Wi-Fi-устройств на MikroTik и получение уведомлений в Telegram при подключении или отключении устройств от Wi-Fi.
-
-Скрипт поддерживает как RouterOS WiFi (`/interface wifi`), так и legacy Wireless (`/interface wireless`).
-
-**Протестировано на RouterOS 7.18.2 (stable).**
+Tested on RouterOS 7.18.2 stable.
 
 ---
 
-# 🇬🇧 English
+# 🇷🇺 Русский
+
+Простой монитор WiFi устройств для MikroTik RouterOS.
+
+Скрипт отслеживает выбранные устройства по MAC-адресу и отправляет уведомления в Telegram при подключении и отключении.
+
+Поддерживаются оба варианта WiFi:
+
+- `/interface wifi`
+    
+- `/interface wireless`
+    
+
+Протестировано на RouterOS 7.18.2 stable.
+
+---
 
 ## Features
 
-* Wi-Fi device monitoring by MAC address
-* Telegram notifications for connect/disconnect events
-* False positive protection using consecutive failure threshold
-* Boot protection after router restart
-* Automatic WiFi driver detection
-* Supports RouterOS WiFi and legacy Wireless drivers
-* Concurrent execution protection with fail-safe lock expiration
-* Persistent device state between scheduler runs
-* Automatic stale state cleanup
-* Global error handling with RouterOS `:onerror`
-* Telegram error isolation
-* Optimized online-device detection using an in-memory MAC cache
-* Safe first-run initialization without unnecessary notifications
+- Monitor WiFi devices by MAC address
+    
+- Telegram notifications on connect/disconnect
+    
+- Protection against false disconnect notifications
+    
+- Boot protection after router restart
+    
+- Automatic WiFi driver detection
+    
+- Supports both `wifi` and legacy `wireless`
+    
+- Protection against multiple script instances
+    
+- Persistent device state
+    
+- Automatic cleanup of old device states
+    
+- Error handling with `:onerror`
+    
+- Telegram errors do not stop the monitor
+    
+- MAC address cache for faster checks
+    
+- Safe initialization on the first run
+    
 
 ---
 
 ## How it works
 
-The script monitors devices configured in the **Access List** and checks whether their MAC addresses are present in the **registration-table**.
+Devices are added to the WiFi Access List.
 
-The registration table is first converted into an in-memory MAC cache. Each monitored device is then checked against this cache.
+The comment must start with:
 
-If a device is missing for several consecutive checks, it is considered offline and a disconnect notification is sent.
+```text
+MONITOR:
+```
 
-When the device appears again, it is marked as online and a reconnect notification is sent.
+For example:
 
-The device state and failure counter are stored globally between scheduler executions.
+```text
+MONITOR:Kitchen TV
+MONITOR:Phone
+MONITOR:Laptop
+```
+
+The text after `MONITOR:` is used as the device name in Telegram notifications.
+
+The script:
+
+1. Reads monitored devices from the Access List.
+    
+2. Detects the available WiFi driver.
+    
+3. Reads the registration table.
+    
+4. Builds a list of currently connected MAC addresses.
+    
+5. Checks monitored devices against this list.
+    
+6. Counts consecutive failed checks for missing devices.
+    
+7. Marks the device as offline after the configured threshold.
+    
+8. Marks it online again when it appears in the registration table.
+    
+9. Sends a Telegram notification when the state changes.
+    
+10. Saves the current state and failure counter.
+    
 
 ---
 
 ## Requirements
 
-### RouterOS
+- MikroTik RouterOS 7.x
+    
+- Tested on RouterOS 7.18.2 stable
+    
+- WiFi interface using either `wifi` or `wireless`
+    
+- Telegram bot
+    
+- Telegram sender script
+    
 
-The final version has been tested on:
-
-```text
-RouterOS 7.18.2 (stable)
-```
-
-The script automatically detects the available WiFi interface implementation:
-
-```text
-/interface wifi
-```
-
-or:
-
-```text
-/interface wireless
-```
-
-> Compatibility with other RouterOS versions may depend on the available scripting and WiFi interface features. RouterOS 7.18.2 is the currently tested version.
+The WiFi driver is detected automatically.
 
 ---
 
-### Telegram script
+# Telegram Scripts
 
-Before using this monitor, a script named:
+There are three Telegram-related scripts in the project.
+
+### 1. `send_to_telegram`
+
+The standard Telegram sender.
+
+It uses RouterOS native URL conversion:
 
 ```routeros
-send_to_telegram
+:convert $strMessageText to=url
 ```
 
-must exist.
+This works well for ASCII/Latin text.
 
-The script must accept the parameter:
+For example:
 
-```routeros
+```text
+WiFi device connected
+```
+
+The script expects the message in:
+
+```text
 strMessageText
 ```
 
-Example:
+---
 
-```routeros
-$SendTelegramMessage strMessageText="Hello"
+### 2. `cp1251_to_utf8_url`
+
+A small helper script for Cyrillic text.
+
+Cyrillic text read from RouterOS configuration fields behaves as CP1251-compatible bytes in the tested environment.
+
+For example:
+
+```text
+Кухня
 ```
+
+is read as:
+
+```text
+CA F3 E5 ED FF
+```
+
+The helper converts it to UTF-8 URL encoding:
+
+```text
+%D0%9A%D1%83%D1%85%D0%BD%D1%8F
+```
+
+Input:
+
+```text
+strInputText
+```
+
+Output:
+
+```text
+strEncodedText
+```
+
+The script also handles normal ASCII characters, spaces and special characters.
 
 ---
 
-## Installation
+### 3. Telegram sender with Cyrillic support
 
-### 1. Create the monitor script
+There is also an alternative version of `send_to_telegram_rus`.
 
-Go to:
+The difference is that it runs:
 
 ```text
-System → Scripts
+cp1251_to_utf8_url
 ```
 
-Create a new script, for example:
+before sending the message.
+
+For example:
+
+```text
+MONITOR:Кухня & TV
+```
+
+becomes:
+
+```text
+MONITOR%3a%D0%9A%D1%83%D1%85%D0%BD%D1%8F%20%26%20TV
+```
+
+This version should be used if device names or notification text can contain Cyrillic characters.
+
+### Which version should I use?
+
+| Script                             | Cyrillic | ASCII | Extra script         |
+| ---------------------------------- | -------- | ----- | -------------------- |
+| `send_to_telegram`                 | Limited  | Yes   | No                   |
+| Alternative `send_to_telegram_rus` | Yes      | Yes   | `cp1251_to_utf8_url` |
+
+If you only use English/Latin text, the standard sender is enough.
+
+If you use Russian or other Cyrillic text, use the alternative sender together with `cp1251_to_utf8_url`.
+
+---
+
+## Telegram configuration
+
+Edit the Telegram sender and set:
+
+```routeros
+:local tgBotToken "YOUR_BOT_TOKEN"
+:local tgChatID "YOUR_CHAT_ID"
+```
+
+The sender uses the Telegram Bot API:
+
+```text
+https://api.telegram.org
+```
+
+The router must be able to connect to Telegram over HTTPS.
+
+The actual Telegram request is used as the delivery attempt. There is no separate HTTPS check before every message.
+
+---
+
+# Installation
+
+## 1. Create the monitor script
+
+Create a new System Script in RouterOS and add the main monitoring script.
+
+For example:
 
 ```text
 monitor
 ```
 
-Paste the WiFi Device Monitor script code.
+---
+
+## 2. Create the Telegram scripts
+
+Create:
+
+```text
+send_to_telegram
+```
+
+If you need Cyrillic support, also create:
+
+```text
+cp1251_to_utf8_url
+```
+
+Then use the alternative Telegram sender.
 
 ---
 
-### 2. Add devices to Access List
+## 3. Add devices to the Access List
 
-Go to:
+Add the devices you want to monitor to the WiFi Access List.
 
-#### RouterOS WiFi
-
-```text
-WiFi → Access List
-```
-
-#### Legacy Wireless
-
-```text
-Wireless → Access List
-```
-
-Add the devices you want to monitor.
-
-Use the following comment format:
+Use the following format in the Comment field:
 
 ```text
 MONITOR:Device Name
@@ -149,227 +300,270 @@ MONITOR:Device Name
 Examples:
 
 ```text
-MONITOR:John Phone
-MONITOR:Office Laptop
-MONITOR:Front Door Camera
+MONITOR:Kitchen TV
+MONITOR:Phone
+MONITOR:Laptop
 ```
 
-Only Access List entries with the prefix:
-
-```text
-MONITOR:
-```
-
-will be monitored.
-
-If the device name is empty, its MAC address will be used as the device name.
+The MAC address is used to identify the device.
 
 ---
 
-### 3. Configure Scheduler
+## 4. Add a Scheduler
 
-Go to:
-
-```text
-System → Scheduler
-```
-
-Create a task:
-
-**Name**
-
-```text
-monitor
-```
-
-**Interval**
-
-```text
-30s
-```
-
-**On Event**
-
-```routeros
-/system script run monitor
-```
-
-The scheduler interval should match the `SchedulerInterval` value in the script.
-
----
-
-## Configuration
-
-The main configuration is located at the beginning of the script:
-
-```routeros
-:local FailThreshold 4
-:local BootGracePeriod 120
-:local SchedulerInterval 30
-```
-
-### FailThreshold
-
-Number of consecutive failed checks before a device is considered offline.
+The default interval is 30 seconds.
 
 Example:
 
-```text
-FailThreshold = 4
-Scheduler = 30 sec
+```routeros
+/system scheduler
+add interval=30s on-event="/system script run monitor" name=monitor
 ```
 
-The device will be considered offline after approximately:
-
-```text
-2 minutes
-```
-
-The exact time depends on when the device disappears relative to the scheduler cycle.
-
-This mechanism prevents temporary WiFi interruptions from generating false disconnect notifications.
+The scheduler interval should match the `SchedulerInterval` value in the monitor script.
 
 ---
 
-### BootGracePeriod
+# Configuration
 
-Grace period after router startup.
+The monitor has a few main parameters.
 
-During this period the monitor does not process devices.
+## FailThreshold
 
-Example:
+Default:
+
+```text
+4
+```
+
+Number of consecutive checks where the device is missing before it is marked as offline.
+
+With a 30 second scheduler:
+
+```text
+4 x 30 seconds = about 2 minutes
+```
+
+This helps to avoid false disconnect notifications.
+
+---
+
+## BootGracePeriod
+
+Default:
 
 ```text
 120
 ```
 
-= 120 seconds.
+Time in seconds after router startup during which the monitor initializes its state.
 
-This prevents false offline notifications while the router and WiFi interfaces are still initializing.
+This prevents false offline notifications after a reboot.
 
 ---
 
-### SchedulerInterval
+## SchedulerInterval
 
-Scheduler interval in seconds.
-
-This value should match the actual RouterOS Scheduler interval.
-
-Example:
+Default:
 
 ```text
 30
 ```
 
-when the scheduler runs every 30 seconds.
+Expected scheduler interval in seconds.
 
-The value is also used by the execution lock to determine its fail-safe expiration period.
+This value is also used by the execution lock.
 
 ---
 
-## Execution Lock
+# Execution Lock
 
-The monitor uses a global execution lock to prevent multiple instances from running simultaneously.
+The monitor uses an execution lock to prevent multiple instances from running at the same time.
 
-The lock is based on:
+This can happen if:
+
+- the previous run takes longer than expected
+    
+- the script is started manually
+    
+- the scheduler starts while another instance is still running
+    
+
+The lock uses:
 
 ```text
 :timestamp
+```
+
+and:
+
+```text
 :tonsec
 ```
 
-rather than the current time of day.
-
-The lock automatically expires after two scheduler intervals.
-
-This provides a fail-safe mechanism in case a previous execution is interrupted unexpectedly.
+The lock has an expiration time, so a broken or interrupted script run does not leave the monitor permanently locked.
 
 ---
 
-## Error Handling
+# Error Handling
 
-The main monitoring process is protected by RouterOS `:onerror`.
+The main monitoring process is protected with RouterOS `:onerror`.
 
-Unexpected errors are written to the RouterOS log.
+Telegram sending is also isolated from the main monitoring code.
 
-Telegram errors are handled separately so that a temporary Telegram failure does not terminate the monitoring process.
+If Telegram is unavailable, the monitor itself continues working.
+
+RouterOS can show the actual `/tool fetch` error in the log, for example:
+
+```text
+Download from api.telegram.org FAILED: Idle timeout - connecting
+```
+
+The Telegram script also logs:
+
+```text
+SendTelegram failed: Telegram API unavailable or request failed
+```
 
 ---
 
-## State Management
+# State Management
 
-Each monitored device maintains:
+The monitor stores state information globally.
+
+For each device it keeps:
 
 ```text
 <MAC>-state
+```
+
+and:
+
+```text
 <MAC>-fail
 ```
 
-Example:
+MAC addresses are converted to safe storage keys.
+
+For example:
 
 ```text
-AA-BB-CC-DD-EE-FF-state
-AA-BB-CC-DD-EE-FF-fail
+AA:BB:CC:DD:EE:FF
 ```
 
-The MAC address is converted into a safe storage key by replacing `:` with `-`.
+becomes:
 
-On the first run:
+```text
+AA-BB-CC-DD-EE-FF
+```
 
-* an online device is initialized as `online`;
-* an offline device is initialized as `offline`;
-* no Telegram notification is sent during initial state detection.
+This allows the monitor to keep the device state between script runs.
 
 ---
 
-## Automatic Cleanup
+# First Run
 
-When a device is removed from the monitored Access List, its old state entries are automatically removed from the global storage.
+On the first run the monitor initializes the state of all configured devices.
 
-The script rebuilds the storage array using only active devices instead of modifying the array while iterating over it.
+It does not immediately send offline notifications for devices that are currently not connected.
 
----
+This prevents a lot of false notifications after:
 
-## Example Notifications
-
-Connected:
-
-```text
-O - John Phone connected to Wi-Fi (MikroTik)
-```
-
-Disconnected:
-
-```text
-X - John Phone disconnected from Wi-Fi (MikroTik)
-```
+- installation
+    
+- router reboot
+    
+- script restart
+    
+- configuration changes
+    
 
 ---
 
-## Compatibility Testing
+# Automatic Cleanup
 
-The script was tested on:
+When a device is removed from the Access List, its old state is also removed.
+
+This keeps the global state storage clean and prevents old device entries from accumulating.
+
+---
+
+# Example Notifications
+
+English:
 
 ```text
-RouterOS 7.18.2 (stable)
+🟢 Device connected: Kitchen TV
 ```
 
-The compatibility tests covered:
+```text
+🔴 Device disconnected: Kitchen TV
+```
 
-* dynamic array keys
-* array key removal
-* `foreach key,value`
-* `registration-table as-value`
-* `access-list as-value`
-* `:totime` uptime conversion
-* array rebuilding
-* global array replacement
-* `:timestamp`
-* `:tonsec`
-* timestamp arithmetic
-* `:onerror`
+With Cyrillic:
 
-The final production version does not use the RouterOS constructs that were confirmed to fail during testing on RouterOS 7.18.2.
+```text
+🟢 Устройство подключено: Кухня ТВ
+```
+
+```text
+🔴 Устройство отключено: Кухня ТВ
+```
+
+For Cyrillic messages use:
+
+```text
+cp1251_to_utf8_url
+```
+
+together with the alternative Telegram sender.
+
+---
+
+# Compatibility Testing
+
+The scripts were tested on RouterOS 7.18.2 stable.
+
+The following RouterOS features were checked during development:
+
+- Dynamic array keys
+    
+- Array key removal
+    
+- `foreach key,value`
+    
+- `registration-table as-value`
+    
+- `access-list as-value`
+    
+- `:totime`
+    
+- Global array replacement
+    
+- `:timestamp`
+    
+- `:tonsec`
+    
+- Timestamp arithmetic
+    
+- `:onerror`
+    
+- `:convert ... to=url`
+    
+- `:convert ... to=hex`
+    
+- Cyrillic text from RouterOS configuration fields
+    
+- CP1251-compatible byte conversion
+    
+- UTF-8 URL encoding
+    
+- Telegram HTTP POST requests
+    
+- Telegram error handling
+    
+
+Some RouterOS scripting constructs caused compatibility problems during testing, so the final version avoids them.
 
 ---
 
@@ -377,347 +571,522 @@ The final production version does not use the RouterOS constructs that were conf
 
 ## Возможности
 
-* Мониторинг Wi-Fi-устройств по MAC-адресу
-* Уведомления в Telegram о подключении и отключении устройств
-* Защита от ложных срабатываний через последовательные неудачные проверки
-* Защита после перезагрузки роутера
-* Автоматическое определение используемого WiFi-драйвера
-* Поддержка RouterOS WiFi и legacy Wireless
-* Защита от одновременного запуска с fail-safe блокировкой
-* Сохранение состояния устройств между запусками scheduler
-* Автоматическая очистка устаревших данных
-* Глобальная обработка ошибок через RouterOS `:onerror`
-* Изоляция ошибок Telegram
-* Оптимизированное определение подключённых устройств через кэш MAC-адресов
-* Безопасная инициализация устройств при первом запуске без лишних уведомлений
+- Мониторинг WiFi устройств по MAC-адресу
+    
+- Уведомления в Telegram при подключении и отключении
+    
+- Защита от ложных уведомлений об отключении
+    
+- Защита после перезагрузки роутера
+    
+- Автоматическое определение WiFi драйвера
+    
+- Поддержка `wifi` и старого `wireless`
+    
+- Защита от одновременного запуска нескольких экземпляров
+    
+- Сохранение состояния устройств
+    
+- Автоматическая очистка старых состояний
+    
+- Обработка ошибок через `:onerror`
+    
+- Ошибки Telegram не останавливают мониторинг
+    
+- Кэш MAC-адресов для более быстрой проверки
+    
+- Безопасная инициализация при первом запуске
+    
 
 ---
 
 ## Как это работает
 
-Скрипт отслеживает устройства, добавленные в **Access List**, и проверяет наличие их MAC-адресов в **registration-table**.
+Устройства добавляются в WiFi Access List.
 
-Сначала registration table преобразуется в кэш MAC-адресов. Затем каждое контролируемое устройство проверяется по этому кэшу.
-
-Если устройство отсутствует несколько последовательных проверок, оно считается отключённым и отправляется уведомление в Telegram.
-
-Когда устройство снова появляется в registration table, оно считается подключённым и отправляется уведомление о восстановлении соединения.
-
-Состояние устройства и счётчик ошибок сохраняются в глобальном хранилище между запусками scheduler.
-
----
-
-## Требования
-
-### RouterOS
-
-Финальная версия протестирована на:
-
-```text
-RouterOS 7.18.2 (stable)
-```
-
-Скрипт автоматически определяет доступную реализацию WiFi:
-
-```text
-/interface wifi
-```
-
-или:
-
-```text
-/interface wireless
-```
-
-> Совместимость с другими версиями RouterOS может зависеть от доступных возможностей scripting и WiFi-интерфейсов. На данный момент протестированной версией является RouterOS 7.18.2.
-
----
-
-### Telegram скрипт
-
-Перед использованием должен существовать скрипт:
-
-```text
-send_to_telegram
-```
-
-Он должен принимать параметр:
-
-```text
-strMessageText
-```
-
-Пример вызова:
-
-```routeros
-$SendTelegramMessage strMessageText="Hello"
-```
-
----
-
-## Установка
-
-### 1. Создайте monitor script
-
-Перейдите:
-
-```text
-System → Scripts
-```
-
-Создайте новый script, например:
-
-```text
-monitor
-```
-
-Вставьте код WiFi Device Monitor.
-
----
-
-### 2. Добавьте устройства в Access List
-
-#### RouterOS WiFi
-
-```text
-WiFi → Access List
-```
-
-#### Legacy Wireless
-
-```text
-Wireless → Access List
-```
-
-Добавьте устройства, которые необходимо отслеживать.
-
-Используйте формат комментария:
-
-```text
-MONITOR:Device Name
-```
-
-Примеры:
-
-```text
-MONITOR:John Phone
-MONITOR:Office Laptop
-MONITOR:Front Door Camera
-```
-
-Только записи с префиксом:
+Комментарий должен начинаться с:
 
 ```text
 MONITOR:
 ```
 
-будут отслеживаться.
+Например:
 
-Если имя устройства не указано, в качестве имени будет использоваться его MAC-адрес.
+```text
+MONITOR:Kitchen TV
+MONITOR:Phone
+MONITOR:Laptop
+```
+
+Текст после `MONITOR:` используется как имя устройства в уведомлении Telegram.
+
+Скрипт:
+
+1. Читает устройства из Access List.
+    
+2. Определяет доступный WiFi драйвер.
+    
+3. Читает registration table.
+    
+4. Создаёт список подключённых MAC-адресов.
+    
+5. Проверяет по нему отслеживаемые устройства.
+    
+6. Считает последовательные пропуски устройства.
+    
+7. После достижения заданного порога считает устройство отключённым.
+    
+8. При появлении устройства снова считает его подключённым.
+    
+9. Отправляет уведомление в Telegram.
+    
+10. Сохраняет состояние и счётчик ошибок.
+    
 
 ---
 
-### 3. Настройте Scheduler
+## Требования
 
-Перейдите:
+- MikroTik RouterOS 7.x
+    
+- Протестировано на RouterOS 7.18.2 stable
+    
+- WiFi интерфейс с `wifi` или `wireless`
+    
+- Telegram bot
+    
+- Telegram sender script
+    
 
-```text
-System → Scheduler
+WiFi драйвер определяется автоматически.
+
+---
+
+# Telegram-скрипты
+
+В проекте используются три скрипта, связанные с Telegram.
+
+### 1. `send_to_telegram`
+
+Обычная версия отправителя сообщений в Telegram.
+
+Использует встроенное преобразование RouterOS:
+
+```routeros
+:convert $strMessageText to=url
 ```
 
-Создайте задачу:
+Подходит для ASCII и Latin текста.
 
-**Name**
+Сообщение передаётся через переменную:
+
+```text
+strMessageText
+```
+
+---
+
+### 2. `cp1251_to_utf8_url`
+
+Вспомогательный скрипт для работы с кириллицей.
+
+Кириллица, прочитанная из конфигурационных полей RouterOS, в протестированном окружении ведёт себя как CP1251-совместимые байты.
+
+Например:
+
+```text
+Кухня
+```
+
+читается как:
+
+```text
+CA F3 E5 ED FF
+```
+
+Скрипт преобразует эти байты в UTF-8 URL encoding:
+
+```text
+%D0%9A%D1%83%D1%85%D0%BD%D1%8F
+```
+
+Вход:
+
+```text
+strInputText
+```
+
+Выход:
+
+```text
+strEncodedText
+```
+
+---
+
+### 3. Альтернативный Telegram sender с поддержкой кириллицы
+
+Альтернативная версия `send_to_telegram_rus` сначала запускает:
+
+```text
+cp1251_to_utf8_url
+```
+
+а затем отправляет получившуюся строку в Telegram.
+
+Например:
+
+```text
+MONITOR:Кухня & TV
+```
+
+преобразуется в:
+
+```text
+MONITOR%3a%D0%9A%D1%83%D1%85%D0%BD%D1%8F%20%26%20TV
+```
+
+Если названия устройств или сообщения содержат кириллицу, рекомендуется использовать именно эту версию.
+
+### Какую версию использовать?
+
+| Скрипт                                | Кириллица   | ASCII | Дополнительный скрипт |
+| ------------------------------------- | ----------- | ----- | --------------------- |
+| `send_to_telegram`                    | Ограниченно | Да    | Нет                   |
+| Альтернативный `send_to_telegram_rus` | Да          | Да    | `cp1251_to_utf8_url`  |
+
+Если используются только английские/Latin символы, достаточно обычного sender.
+
+Если используются русские или другие кириллические символы, используйте альтернативный sender вместе с `cp1251_to_utf8_url`.
+
+---
+
+## Настройка Telegram
+
+В Telegram sender укажите:
+
+```routeros
+:local tgBotToken "YOUR_BOT_TOKEN"
+:local tgChatID "YOUR_CHAT_ID"
+```
+
+Для отправки используется:
+
+```text
+https://api.telegram.org
+```
+
+MikroTik должен иметь возможность установить HTTPS-соединение с Telegram.
+
+Отдельная проверка Telegram перед каждой отправкой не выполняется. Сам запрос к Telegram API используется как попытка отправки сообщения.
+
+---
+
+# Установка
+
+## 1. Создайте основной скрипт
+
+Создайте System Script с кодом мониторинга.
+
+Например:
 
 ```text
 monitor
 ```
 
-**Interval**
+---
+
+## 2. Создайте Telegram-скрипты
+
+Создайте:
 
 ```text
-30s
+send_to_telegram
 ```
 
-**On Event**
+Если нужна поддержка кириллицы:
 
-```routeros
-/system script run monitor
+```text
+cp1251_to_utf8_url
 ```
 
-Интервал Scheduler должен соответствовать значению `SchedulerInterval` в скрипте.
+После этого используйте альтернативную версию Telegram sender.
 
 ---
 
-## Настройка параметров
+## 3. Добавьте устройства в Access List
 
-В начале скрипта доступны основные параметры:
+Добавьте нужные устройства в WiFi Access List.
 
-```routeros
-:local FailThreshold 4
-:local BootGracePeriod 120
-:local SchedulerInterval 30
-```
-
-### FailThreshold
-
-Количество последовательных неудачных проверок перед тем, как устройство будет считаться отключённым.
-
-Пример:
+В поле Comment используйте:
 
 ```text
-FailThreshold = 4
-Scheduler = 30 sec
-```
-
-Устройство будет считаться отключённым примерно через:
-
-```text
-2 минуты
-```
-
-Точное время зависит от момента исчезновения устройства относительно очередного запуска scheduler.
-
-Этот механизм предотвращает ложные уведомления при кратковременных проблемах с Wi-Fi.
-
----
-
-### BootGracePeriod
-
-Период ожидания после запуска роутера.
-
-В течение этого времени монитор не выполняет обработку устройств.
-
-Пример:
-
-```text
-120
-```
-
-= 120 секунд.
-
-Это предотвращает ложные уведомления во время запуска роутера и WiFi-интерфейсов.
-
----
-
-### SchedulerInterval
-
-Интервал запуска Scheduler в секундах.
-
-Значение должно соответствовать фактическому интервалу RouterOS Scheduler.
-
-Пример:
-
-```text
-30
-```
-
-если scheduler запускается каждые 30 секунд.
-
-Это значение также используется execution lock для расчёта периода его автоматического истечения.
-
----
-
-## Execution Lock
-
-Монитор использует глобальную блокировку выполнения для предотвращения одновременного запуска нескольких экземпляров.
-
-Для lock используются:
-
-```text
-:timestamp
-:tonsec
-```
-
-вместо текущего времени суток.
-
-Lock автоматически истекает через два интервала Scheduler.
-
-Это обеспечивает fail-safe поведение, если предыдущий запуск был неожиданно прерван.
-
----
-
-## Обработка ошибок
-
-Основной процесс мониторинга защищён через RouterOS `:onerror`.
-
-Непредвиденные ошибки записываются в системный лог RouterOS.
-
-Ошибки Telegram обрабатываются отдельно, поэтому временная проблема с Telegram не должна останавливать сам мониторинг.
-
----
-
-## Управление состоянием
-
-Для каждого устройства сохраняются:
-
-```text
-<MAC>-state
-<MAC>-fail
+MONITOR:Device Name
 ```
 
 Например:
 
 ```text
-AA-BB-CC-DD-EE-FF-state
-AA-BB-CC-DD-EE-FF-fail
+MONITOR:Kitchen TV
+MONITOR:Phone
+MONITOR:Laptop
 ```
 
-MAC-адрес преобразуется в безопасный ключ хранения: символы `:` заменяются на `-`.
-
-При первом запуске:
-
-* подключённое устройство получает состояние `online`;
-* отключённое устройство получает состояние `offline`;
-* Telegram-уведомление при первоначальном определении состояния не отправляется.
+MAC-адрес используется для идентификации устройства.
 
 ---
 
-## Автоматическая очистка
+## 4. Добавьте Scheduler
 
-Если устройство удаляется из отслеживаемого Access List, его старые записи автоматически удаляются из глобального хранилища.
+По умолчанию используется интервал 30 секунд.
 
-Скрипт пересобирает массив хранилища только из актуальных устройств вместо изменения массива непосредственно во время его обхода.
+Пример:
+
+```routeros
+/system scheduler
+add interval=30s on-event="/system script run monitor" name=monitor
+```
+
+Интервал Scheduler должен соответствовать значению `SchedulerInterval` в основном скрипте.
 
 ---
 
-## Пример уведомлений
+# Настройка параметров
 
-Подключение:
+## FailThreshold
+
+По умолчанию:
 
 ```text
-O - John Phone connected to Wi-Fi (MikroTik)
+4
 ```
 
-Отключение:
+Количество последовательных проверок, во время которых устройство отсутствует, прежде чем оно будет признано отключённым.
+
+При интервале 30 секунд:
 
 ```text
-X - John Phone disconnected from Wi-Fi (MikroTik)
+4 x 30 секунд = примерно 2 минуты
+```
+
+Это помогает избежать ложных уведомлений.
+
+---
+
+## BootGracePeriod
+
+По умолчанию:
+
+```text
+120
+```
+
+Время в секундах после загрузки роутера.
+
+В этот период скрипт инициализирует состояние устройств и не отправляет ложные уведомления об отключении.
+
+---
+
+## SchedulerInterval
+
+По умолчанию:
+
+```text
+30
+```
+
+Интервал запуска скрипта в секундах.
+
+Это значение также используется execution lock.
+
+---
+
+# Execution Lock
+
+Скрипт использует блокировку выполнения, чтобы несколько экземпляров не работали одновременно.
+
+Это может произойти, например, если:
+
+- предыдущий запуск ещё не завершился;
+    
+- скрипт запустили вручную;
+    
+- Scheduler запустил новый экземпляр до завершения предыдущего.
+    
+
+Для работы блокировки используются:
+
+```text
+:timestamp
+```
+
+и:
+
+```text
+:tonsec
+```
+
+У блокировки есть время истечения, поэтому зависший или прерванный запуск не оставляет монитор заблокированным навсегда.
+
+---
+
+# Обработка ошибок
+
+Основной процесс защищён через `:onerror`.
+
+Ошибки Telegram отделены от основного процесса мониторинга.
+
+Если Telegram недоступен, мониторинг WiFi продолжает работать.
+
+В логах RouterOS может появиться исходная ошибка `/tool fetch`, например:
+
+```text
+Download from api.telegram.org FAILED: Idle timeout - connecting
+```
+
+Telegram sender дополнительно пишет:
+
+```text
+SendTelegram failed: Telegram API unavailable or request failed
 ```
 
 ---
 
-## Тестирование совместимости
+# Управление состоянием
 
-Скрипт протестирован на:
+Скрипт хранит состояние устройств глобально.
+
+Для каждого устройства используются:
 
 ```text
-RouterOS 7.18.2 (stable)
+<MAC>-state
 ```
 
-Тестами на совместимость были проверены:
+и:
 
-* dynamic array keys
-* удаление ключей массива
-* `foreach key,value`
-* `registration-table as-value`
-* `access-list as-value`
-* преобразование uptime через `:totime`
-* пересборка массивов
-* замена глобального массива
-* `:timestamp`
-* `:tonsec`
-* арифметика timestamp
-* `:onerror`
+```text
+<MAC>-fail
+```
 
-Финальная production-версия не использует конструкции RouterOS, которые во время тестирования были подтверждены как неработающие на RouterOS 7.18.2.
+MAC-адрес преобразуется в ключ для хранения.
+
+Например:
+
+```text
+AA:BB:CC:DD:EE:FF
+```
+
+становится:
+
+```text
+AA-BB-CC-DD-EE-FF
+```
+
+Благодаря этому состояние сохраняется между запусками скрипта.
+
+---
+
+# Первый запуск
+
+При первом запуске скрипт инициализирует состояние всех настроенных устройств.
+
+Он не отправляет сразу уведомления об отключении устройств, которые в данный момент не подключены.
+
+Это предотвращает большое количество ложных сообщений после:
+
+- установки
+    
+- перезагрузки роутера
+    
+- перезапуска скрипта
+    
+- изменения конфигурации
+    
+
+---
+
+# Автоматическая очистка
+
+Если устройство удалить из Access List, его старое состояние также удаляется.
+
+Это предотвращает накопление старых записей.
+
+---
+
+# Примеры уведомлений
+
+На английском:
+
+```text
+🟢 Device connected: Kitchen TV
+```
+
+```text
+🔴 Device disconnected: Kitchen TV
+```
+
+С кириллицей:
+
+```text
+🟢 Устройство подключено: Кухня TV
+```
+
+```text
+🔴 Устройство отключено: Кухня TV
+```
+
+Для кириллицы используйте:
+
+```text
+cp1251_to_utf8_url
+```
+
+вместе с альтернативным Telegram sender.
+
+---
+
+# Тестирование совместимости
+
+Скрипты протестированы на RouterOS 7.18.2 stable.
+
+Во время разработки отдельно проверялись:
+
+- динамические ключи массивов
+    
+- удаление ключей массивов
+    
+- `foreach key,value`
+    
+- `registration-table as-value`
+    
+- `access-list as-value`
+    
+- `:totime`
+    
+- замена глобального массива
+    
+- `:timestamp`
+    
+- `:tonsec`
+    
+- арифметика timestamp
+    
+- `:onerror`
+    
+- `:convert ... to=url`
+    
+- `:convert ... to=hex`
+    
+- кириллица из конфигурационных полей RouterOS
+    
+- преобразование CP1251-совместимых байтов
+    
+- UTF-8 URL encoding
+    
+- HTTP POST запросы к Telegram
+    
+- обработка ошибок Telegram
+    
+
+Некоторые конструкции RouterOS во время тестирования показали проблемы совместимости, поэтому в финальной версии они не используются.
+
