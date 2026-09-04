@@ -15,23 +15,6 @@ Tested on RouterOS 7.18.2 stable.
 
 ---
 
-# 🇷🇺 Русский
-
-Простой монитор WiFi устройств для MikroTik RouterOS.
-
-Скрипт отслеживает выбранные устройства по MAC-адресу и отправляет уведомления в Telegram при подключении и отключении.
-
-Поддерживаются оба варианта WiFi:
-
-- `/interface wifi`
-    
-- `/interface wireless`
-    
-
-Протестировано на RouterOS 7.18.2 stable.
-
----
-
 ## Features
 
 - Monitor WiFi devices by MAC address
@@ -568,6 +551,21 @@ Some RouterOS scripting constructs caused compatibility problems during testing,
 ---
 
 # 🇷🇺 Русский
+
+Простой монитор WiFi устройств для MikroTik RouterOS.
+
+Скрипт отслеживает выбранные устройства по MAC-адресу и отправляет уведомления в Telegram при подключении и отключении.
+
+Поддерживаются оба варианта WiFi:
+
+- `/interface wifi`
+    
+- `/interface wireless`
+    
+
+Протестировано на RouterOS 7.18.2 stable.
+
+---
 
 ## Возможности
 
