@@ -19,7 +19,7 @@
 
     # Message text received from caller script
 
-    :local strSendText $strMessageText
+    :local strSendText [:convert $strMessageText to=url]
 
     # Check internet connectivity using Google DNS
 
