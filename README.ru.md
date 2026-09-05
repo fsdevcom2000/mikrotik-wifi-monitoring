@@ -1,4 +1,4 @@
-[English](README.md)
+[🇬🇧 English](README.md)
 
 Простой монитор WiFi устройств для MikroTik RouterOS.
 
