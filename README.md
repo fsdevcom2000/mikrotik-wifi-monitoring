@@ -1,3 +1,5 @@
+[🇷🇺 Русский](README.ru.md)
+
 # WiFi Device Monitor for RouterOS
 
 A simple WiFi device monitor for MikroTik RouterOS.
